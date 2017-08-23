@@ -35,6 +35,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define FOROJONLY
+
 /**
  * This sample program shows how to implement a simple javascript shell
  * based on V8.  This includes initializing V8 with command line options,
@@ -59,6 +61,13 @@ void Version(const v8::FunctionCallbackInfo<v8::Value>& args);
 v8::MaybeLocal<v8::String> ReadFile(v8::Isolate* isolate, const char* name);
 void ReportException(v8::Isolate* isolate, v8::TryCatch* handler);
 
+v8::MaybeLocal<v8::String> ReadLineEx();
+void ReadLine(const v8::FunctionCallbackInfo<v8::Value>& args);
+void PrintNoN(const v8::FunctionCallbackInfo<v8::Value>& args);
+void Gets(const v8::FunctionCallbackInfo<v8::Value>& args);
+v8::MaybeLocal<v8::String> GetsEx(int kBufferSize);
+void ReadInt(const v8::FunctionCallbackInfo<v8::Value>& args);
+void ReadDouble(const v8::FunctionCallbackInfo<v8::Value>& args);
 
 static bool run_shell;
 
@@ -113,6 +122,7 @@ v8::Local<v8::Context> CreateShellContext(v8::Isolate* isolate) {
       v8::String::NewFromUtf8(isolate, "print", v8::NewStringType::kNormal)
           .ToLocalChecked(),
       v8::FunctionTemplate::New(isolate, Print));
+  #ifndef FOROJONLY
   // Bind the global 'read' function to the C++ Read callback.
   global->Set(v8::String::NewFromUtf8(
                   isolate, "read", v8::NewStringType::kNormal).ToLocalChecked(),
@@ -125,6 +135,22 @@ v8::Local<v8::Context> CreateShellContext(v8::Isolate* isolate) {
   global->Set(v8::String::NewFromUtf8(
                   isolate, "quit", v8::NewStringType::kNormal).ToLocalChecked(),
               v8::FunctionTemplate::New(isolate, Quit));
+  #endif // FOROJONLY
+  global->Set(v8::String::NewFromUtf8(
+                  isolate, "read_line", v8::NewStringType::kNormal).ToLocalChecked(),
+              v8::FunctionTemplate::New(isolate, ReadLine));
+  global->Set(v8::String::NewFromUtf8(
+                  isolate, "printsth", v8::NewStringType::kNormal).ToLocalChecked(),
+              v8::FunctionTemplate::New(isolate, PrintNoN));
+  global->Set(v8::String::NewFromUtf8(
+                  isolate, "gets", v8::NewStringType::kNormal).ToLocalChecked(),
+              v8::FunctionTemplate::New(isolate, Gets));
+  global->Set(v8::String::NewFromUtf8(
+                  isolate, "readInt", v8::NewStringType::kNormal).ToLocalChecked(),
+              v8::FunctionTemplate::New(isolate, ReadInt));
+  global->Set(v8::String::NewFromUtf8(
+                  isolate, "readDouble", v8::NewStringType::kNormal).ToLocalChecked(),
+              v8::FunctionTemplate::New(isolate, ReadDouble));
   // Bind the 'version' function
   global->Set(
       v8::String::NewFromUtf8(isolate, "version", v8::NewStringType::kNormal)
@@ -152,6 +178,27 @@ void Print(const v8::FunctionCallbackInfo<v8::Value>& args) {
     printf("%s", cstr);
   }
   printf("\n");
+  fflush(stdout);
+}
+
+
+// The callback that is invoked by v8 whenever the JavaScript 'print'
+// function is called.  Prints its arguments on stdout separated by
+// spaces and ending with a newline.
+void PrintNoN(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  bool first = true;
+  for (int i = 0; i < args.Length(); i++) {
+    v8::HandleScope handle_scope(args.GetIsolate());
+    if (first) {
+      first = false;
+    } else {
+      printf(" ");
+    }
+    v8::String::Utf8Value str(args[i]);
+    const char* cstr = ToCString(str);
+    printf("%s", cstr);
+  }
+  //printf("\n");
   fflush(stdout);
 }
 
@@ -257,6 +304,117 @@ v8::MaybeLocal<v8::String> ReadFile(v8::Isolate* isolate, const char* name) {
       isolate, chars, v8::NewStringType::kNormal, static_cast<int>(size));
   delete[] chars;
   return result;
+}
+
+// The callback that is invoked by v8 whenever the JavaScript 'read_line'
+// function is called. Reads a string from standard input and returns.
+void ReadLine(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  if (args.Length() > 0) {
+    args.GetIsolate()->ThrowException(
+      v8::String::NewFromUtf8(args.GetIsolate(), "Unexpected arguments",
+                              v8::NewStringType::kNormal).ToLocalChecked());
+    return;
+  }
+  v8::Local<v8::String> source;
+  if (!ReadLineEx().ToLocal(&source)) {
+    args.GetIsolate()->ThrowException(
+      v8::String::NewFromUtf8(args.GetIsolate(), "Error loading file",
+                              v8::NewStringType::kNormal).ToLocalChecked());
+    return;
+  }
+  args.GetReturnValue().Set(source);
+}
+
+
+v8::MaybeLocal<v8::String> ReadLineEx() {
+  const int kBufferSize = 1024 + 1;
+  char buffer[kBufferSize];
+
+  char* res;
+  {
+    res = fgets(buffer, kBufferSize, stdin);
+  }
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+  if (res == NULL) {
+    buffer[0] = '\0';
+  }
+
+  int size=0;
+  // Remove newline char
+  for (char* pos = buffer; *pos != '\0'; pos++) {
+    if (*pos == '\n') {
+      *pos = '\0';
+      break;
+    }
+    size++;
+  }
+  return v8::String::NewFromUtf8(isolate, buffer, v8::NewStringType::kNormal, static_cast<int>(size));
+}
+
+// The callback that is invoked by v8 whenever the JavaScript 'Gets'
+// function is called. Reads a string from standard input and returns.
+void Gets(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  if (args.Length() != 1) {
+    args.GetIsolate()->ThrowException(
+      v8::String::NewFromUtf8(args.GetIsolate(), "Unexpected arguments",
+                              v8::NewStringType::kNormal).ToLocalChecked());
+    return;
+  }
+
+  int iRet = args[0]->Int32Value(args.GetIsolate()->GetCurrentContext()).FromMaybe(0);
+  v8::Local<v8::String> source;
+  if (!GetsEx(iRet).ToLocal(&source)) {
+    args.GetIsolate()->ThrowException(
+      v8::String::NewFromUtf8(args.GetIsolate(), "Error loading file",
+                              v8::NewStringType::kNormal).ToLocalChecked());
+    return;
+  }
+  args.GetReturnValue().Set(source);
+}
+
+v8::MaybeLocal<v8::String> GetsEx(int kBufferSize) {
+  char *buffer = new char[kBufferSize+1];
+
+  char* res;
+  {
+    res = fgets(buffer, kBufferSize+1, stdin);
+  }
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+  if (res == NULL) {
+    buffer[0] = '\0';
+  }
+
+  v8::MaybeLocal<v8::String> ret = v8::String::NewFromUtf8(isolate, buffer, v8::NewStringType::kNormal);
+  delete[] buffer;
+  return ret;
+}
+
+// The callback that is invoked by v8 whenever the JavaScript 'readInt'
+// function is called. Reads a string from standard input and returns.
+void ReadInt(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  if (args.Length() > 0) {
+    args.GetIsolate()->ThrowException(
+      v8::String::NewFromUtf8(args.GetIsolate(), "Unexpected arguments",
+                              v8::NewStringType::kNormal).ToLocalChecked());
+    return;
+  }
+  int iRet;
+  if (scanf("%d", &iRet) == 1)
+    args.GetReturnValue().Set(iRet);
+}
+
+// The callback that is invoked by v8 whenever the JavaScript 'readDouble'
+// function is called. Reads a string from standard input and returns.
+void ReadDouble(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  if (args.Length() > 0) {
+    args.GetIsolate()->ThrowException(
+      v8::String::NewFromUtf8(args.GetIsolate(), "Unexpected arguments",
+                              v8::NewStringType::kNormal).ToLocalChecked());
+    return;
+  }
+  double dRet;
+  if (scanf("%lf", &dRet) == 1)
+    args.GetReturnValue().Set(dRet);
 }
 
 
