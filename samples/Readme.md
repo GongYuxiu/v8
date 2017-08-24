@@ -46,12 +46,11 @@ test();
 # OJ Example
 * calc a+b, a b split by a space
 ```js
-var cmd = require('node-stdio')
 var a, b;
 var solveMeFirst = (a,b) => a+b;
-while((a=cmd.readInt())!=null && (b=cmd.readInt())!=null){
+while((a=readInt())!=null && (b=readInt())!=null){
     let c = solveMeFirst(a, b);
-    cmd.print(c);
+    print(c);
 }
 ```
 
